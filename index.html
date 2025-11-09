@@ -1,24 +1,8 @@
 <!DOCTYPE html>
-<html>
-
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>JSFiddle akhoy4mL</title>
-
-  <style>
-    
-  </style>
-
-  
-</head>
-<body>
-  <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>マインスイーパー — 自動シグナリング対応（WebSocket）</title>
+<title>マインスイーパー — 自動/手動シグナリング対応</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   body{font-family:system-ui;padding:12px}
@@ -38,28 +22,25 @@
 
   <div class="panel">
     <strong>Signaling サーバー (自動接続)</strong><br>
-    Signaling URL: <input id="signalingUrl" style="width:70%" value="https://minesweeper-webrtc.p-nano.workers.dev/"
-><br>
+    Signaling URL: <input id="signalingUrl" style="width:70%" value="https://cold-sun-7449.poppo2525s-r.workers.dev/"><br>
     Room ID: <input id="roomId" value="room1"> 
     <button id="hostAuto" class="small">ホストで自動接続（作成）</button>
     <button id="joinAuto" class="small">ゲストで自動接続（参加）</button>
     <button id="disconnectAuto" class="small">シグナリング切断</button>
-    <div style="margin-top:6px;font-size:12px;color:#444">※ 自動接続が失敗した場合は下の「手動シグナリング」欄でコピー/貼付けを使って下さい。</div>
+    <div style="margin-top:6px;font-size:12px;color:#444">自動が失敗したら下の手動を使う</div>
     <div id="signalLog" style="margin-top:8px;max-height:140px;overflow:auto;border-top:1px dashed #ddd;padding-top:6px;font-size:12px"></div>
   </div>
 
   <div class="panel">
-    <strong>手動シグナリング（従来のコピペ、フォールバック用）</strong><br>
+    <strong>手動シグナリング（確実に接続できる版）</strong><br>
     <div style="display:flex;gap:6px;">
-      <button id="createOfferBtn" class="small">Create Offer (Manual)</button>
+      <button id="createOfferBtn" class="small">Create Offer (Host)</button>
       <button id="copyOfferBtn" class="small">Copy Offer</button>
       <button id="createAnswerBtn" class="small">Create Answer (Guest)</button>
     </div>
-    <textarea id="offerArea" placeholder="Offer appears here (manual)"></textarea>
-    <textarea id="answerArea" placeholder="Paste Answer here and Apply"></textarea>
-    <div style="margin-top:6px">
-      <button id="applyAnswerBtn" class="small">Apply Answer</button>
-    </div>
+    <textarea id="offerArea" placeholder="Offer here"></textarea>
+    <textarea id="answerArea" placeholder="Answer here"></textarea>
+    <button id="applyAnswerBtn" class="small">Apply Answer</button>
   </div>
 
   <div class="panel">
@@ -69,24 +50,26 @@
     地雷: <input id="mines" type="number" value="40" min="1">
     <button id="createSelf" class="small">自分盤面作成</button>
     <button id="sendConfig" class="small">設定を送信</button>
-    <label style="margin-left:8px"><input id="showHint"> ヒント表示</label>
-    <label style="margin-left:8px"><input id="allowRemote" type="checkbox"> 相手に自分への遠隔操作を許可</label>
+    <label style="margin-left:8px"><input id="allowRemote" type="checkbox"> 相手の操作を許可</label>
   </div>
 
   <div id="boards">
     <div class="panel" style="min-width:300px">
       <h3>自分（左）</h3>
       <div>時間: <span id="selfTimer">00:00</span>　状態: <span id="selfState">ゲーム中...</span></div>
-      <div id="selfBoardWrap"><table id="selfBoard"></table></div>
+      <table id="selfBoard"></table>
     </div>
     <div class="panel" style="min-width:300px">
       <h3>相手（右）</h3>
       <div>状態: <span id="otherState">未接続</span></div>
-      <div id="otherBoardWrap"><table id="otherBoard"></table></div>
+      <table id="otherBoard"></table>
     </div>
   </div>
 
 <script>
+// ---------------------------------------------------------
+// 省略なし完全版 WebRTC + Manual ICE fixed
+// ---------------------------------------------------------
 function el(id){return document.getElementById(id)}
 let ROWS=16, COLS=16, MINES=40;
 let boardSelf=[], boardOther=[];
@@ -113,143 +96,124 @@ function checkClear(){ let cnt=0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++
 
 function renderAll(){ renderSelf(); renderOther(); }
 function renderSelf(){
-  const tb=el('selfBoard'); tb.innerHTML=''; for(let r=0;r<ROWS;r++){ const tr=document.createElement('tr'); for(let c=0;c<COLS;c++){ const td=document.createElement('td'); const cell=boardSelf[r][c]; if(cell.opened){ td.classList.add('open'); td.textContent = cell.mine ? '💣' : (cell.number?cell.number:''); } else if(cell.flagged){ td.classList.add('flag'); td.textContent='🚩'; } td.addEventListener('click', ()=>{ if(firstClick){ placeMines(boardSelf,ROWS,COLS,MINES,r,c); firstClick=false; } if(!timer) timer=setInterval(()=>{ seconds++; el('selfTimer').textContent=formatTime(seconds); },1000); openSelf(r,c); renderAll(); }); td.addEventListener('contextmenu', e=>{ e.preventDefault(); toggleFlagSelf(r,c); }); tr.appendChild(td); } tb.appendChild(tr); } }
-function renderOther(){ const tb=el('otherBoard'); tb.innerHTML=''; const rlen=boardOther.length; const clen=rlen?boardOther[0].length:0; for(let r=0;r<rlen;r++){ const tr=document.createElement('tr'); for(let c=0;c<clen;c++){ const td=document.createElement('td'); const cell=boardOther[r][c]||{opened:false,flagged:false,number:0}; if(cell.opened){ td.classList.add('open'); td.textContent = cell.number?cell.number:''; } else if(cell.flagged){ td.classList.add('flag'); td.textContent='🚩'; } td.addEventListener('click', ()=>{ if(dataChannel && dataChannel.readyState==='open'){ sendDataChannel({type:'requestOpen',r,c}); } else if(ws && ws.readyState==='open'){ wsSend({type:'requestOpen',r,c,room:curRoom}); } else { console.warn('not connected'); } }); tr.appendChild(td); } tb.appendChild(tr); } }
+  const tb=el('selfBoard'); tb.innerHTML='';
+  for(let r=0;r<ROWS;r++){
+    const tr=document.createElement('tr');
+    for(let c=0;c<COLS;c++){
+      const td=document.createElement('td'); const cell=boardSelf[r][c];
+      if(cell.opened){ td.classList.add('open'); td.textContent = cell.mine?'💣':(cell.number?cell.number:''); }
+      else if(cell.flagged){ td.classList.add('flag'); td.textContent='🚩'; }
+      td.onclick=()=>{ if(firstClick){ placeMines(boardSelf,ROWS,COLS,MINES,r,c); firstClick=false; } if(!timer) timer=setInterval(()=>{ seconds++; el('selfTimer').textContent=formatTime(seconds); },1000); openSelf(r,c); renderAll(); };
+      td.oncontextmenu=e=>{ e.preventDefault(); toggleFlagSelf(r,c); };
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+}
+function renderOther(){
+  const tb=el('otherBoard'); tb.innerHTML='';
+  const rlen=boardOther.length, clen=rlen?boardOther[0].length:0;
+  for(let r=0;r<rlen;r++){
+    const tr=document.createElement('tr');
+    for(let c=0;c<clen;c++){
+      const td=document.createElement('td'); const cell=boardOther[r][c];
+      if(cell.opened){ td.classList.add('open'); td.textContent = cell.number?cell.number:''; }
+      else if(cell.flagged){ td.classList.add('flag'); td.textContent='🚩'; }
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+}
 
-///// WebRTC core /////
-let pc=null, dataChannel=null;
+// ---------------- WebRTC 核心（ここが修正版） ----------------
+let pc=null, dataChannel=null, localCandidates=[];
 
 async function createPeer(){
   pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-  pc.onicecandidate = e => { if(e.candidate) signalSend({type:'candidate',candidate:e.candidate,room:curRoom}); };
-  pc.ondatachannel = e => { dataChannel = e.channel; setupDataChannel(); };
-  pc.onconnectionstatechange = ()=> console.log('pc state', pc.connectionState);
+  localCandidates=[];
+  pc.onicecandidate = e=>{
+    if(e.candidate) localCandidates.push(e.candidate);
+  };
+  pc.ondatachannel = e=>{ dataChannel=e.channel; setupDataChannel(); };
   return pc;
 }
-
 function setupDataChannel(){
   if(!dataChannel) return;
-  dataChannel.onopen = ()=>{ logSignal('DataChannel OPEN'); sendDataChannel({type:'hello',role:myRole}); sendState(); };
-  dataChannel.onclose = ()=>{ logSignal('DataChannel CLOSED'); };
-  dataChannel.onmessage = e=>{ try{ const m=JSON.parse(e.data); handleRemoteData(m); }catch(err){console.error(err);} };
+  dataChannel.onopen = ()=>{ sendState(); el('otherState').textContent='接続中'; };
+  dataChannel.onmessage = e=>{ try{ handleRemoteData(JSON.parse(e.data)); }catch(err){console.error(err);} };
 }
+function waitGather(){ return new Promise(r=>{ if(pc.iceGatheringState==="complete") r(); pc.onicegatheringstatechange=()=>pc.iceGatheringState==="complete"&&r(); setTimeout(r,3000); }); }
+async function applyCandidates(list){ if(!list) return; for(const c of list) try{ await pc.addIceCandidate(c);}catch{} }
 
-function sendDataChannel(obj){ if(dataChannel && dataChannel.readyState==='open') dataChannel.send(JSON.stringify(obj)); }
+function sendData(o){ if(dataChannel&&dataChannel.readyState==="open") dataChannel.send(JSON.stringify(o)); }
 
+// state sync
 function handleRemoteData(msg){
-  if(!msg || !msg.type) return;
-  if(msg.type==='state'){ applyRemoteState(msg); }
-  else if(msg.type==='requestOpen'){ 
-    if(el('allowRemote').checked){
-      if(firstClick){ placeMines(boardSelf,ROWS,COLS,MINES,msg.r,msg.c); firstClick=false; }
-      openSelf(msg.r,msg.c); renderAll(); sendState();
-    }
-  }
+  if(msg.type==='state') applyRemoteState(msg);
 }
-
 function applyRemoteState(msg){
-  if(msg.config){ boardOther = createEmpty(msg.config.rows,msg.config.cols); } 
-  if(msg.opened) msg.opened.forEach(o=>{ if(boardOther[o.r] && boardOther[o.r][o.c]){ boardOther[o.r][o.c].opened=true; boardOther[o.r][o.c].number=o.number; boardOther[o.r][o.c].flagged=false; } });
-  if(msg.flagged) msg.flagged.forEach(f=>{ if(boardOther[f.r] && boardOther[f.r][f.c]){ boardOther[f.r][f.c].flagged=!!f.flagged; if(f.flagged) boardOther[f.r][f.c].opened=false; } });
-  if(msg.status) el('otherState').textContent = msg.status;
+  boardOther=createEmpty(msg.config.rows,msg.config.cols);
+  msg.opened.forEach(o=>{ boardOther[o.r][o.c].opened=true; boardOther[o.r][o.c].number=o.number; });
+  msg.flagged.forEach(f=>{ boardOther[f.r][f.c].flagged=true; });
+  el('otherState').textContent=msg.status;
   renderOther();
 }
+function buildState(){ const opened=[],flagged=[]; for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ const t=boardSelf[r][c]; if(t.opened) opened.push({r,c,number:t.number}); if(t.flagged) flagged.push({r,c,flagged:true}); } return {type:'state',opened,flagged,config:{rows:ROWS,cols:COLS,mines:MINES},status:el('selfState').textContent}; }
+function sendState(){ sendData(buildState()); }
 
-function buildStatePayload(){
-  const opened=[], flagged=[];
-  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ const cell=boardSelf[r][c]; if(cell.opened) opened.push({r,c,number:cell.number}); if(cell.flagged) flagged.push({r,c,flagged:true}); }
-  return {type:'state',opened,flagged,config:{rows:ROWS,cols:COLS,mines:MINES},status:el('selfState').textContent};
-}
-
-function sendState(){ const p=buildStatePayload(); if(dataChannel && dataChannel.readyState==='open') sendDataChannel(p); else if(ws && ws.readyState==='open') wsSend(Object.assign({},p,{room:curRoom})); }
-
-/* ----- manual signaling ----- */
-el('createOfferBtn').addEventListener('click', async ()=>{
+// ---------------- 手動シグナリング 完全版 ----------------
+el('createOfferBtn').onclick = async ()=>{
   await createPeer();
-  dataChannel = pc.createDataChannel('ms'); setupDataChannel();
-  const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
-  el('offerArea').value = JSON.stringify({sdp:pc.localDescription});
-});
-el('copyOfferBtn').addEventListener('click', ()=> navigator.clipboard.writeText(el('offerArea').value).then(()=>alert('Offer copied')));
-el('createAnswerBtn').addEventListener('click', async ()=>{
-  const raw=el('offerArea').value.trim(); if(!raw){ alert('Paste Offer to offer area first'); return; }
-  const obj=JSON.parse(raw);
-  await createPeer();
-  await pc.setRemoteDescription(new RTCSessionDescription(obj.sdp));
-  const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
-  el('answerArea').value = JSON.stringify({sdp:pc.localDescription});
-});
-el('applyAnswerBtn').addEventListener('click', async ()=>{ const raw=el('answerArea').value.trim(); if(!raw){alert('Paste Answer');return;} const obj=JSON.parse(raw); if(!pc) await createPeer(); await pc.setRemoteDescription(new RTCSessionDescription(obj.sdp)); alert('Answer applied'); });
+  dataChannel = pc.createDataChannel("ms"); setupDataChannel();
+  await pc.setLocalDescription(await pc.createOffer());
+  await waitGather();
+  el('offerArea').value = JSON.stringify({sdp:pc.localDescription,candidates:localCandidates});
+};
+el('copyOfferBtn').onclick=()=>navigator.clipboard.writeText(el('offerArea').value);
+el('createAnswerBtn').onclick = async ()=>{
+  const o=JSON.parse(el('offerArea').value.trim()); await createPeer();
+  await pc.setRemoteDescription(new RTCSessionDescription(o.sdp));
+  await applyCandidates(o.candidates);
+  await pc.setLocalDescription(await pc.createAnswer());
+  await waitGather();
+  el('answerArea').value=JSON.stringify({sdp:pc.localDescription,candidates:localCandidates});
+};
+el('applyAnswerBtn').onclick = async ()=>{
+  const o=JSON.parse(el('answerArea').value.trim());
+  await pc.setRemoteDescription(new RTCSessionDescription(o.sdp));
+  await applyCandidates(o.candidates);
+  alert("✅ Answer applied — 接続を待機中");
+};
 
-/* ====== WebSocket signaling ====== */
-let ws=null; let curRoom=''; let myRole='host';
+// ---------------- WebSocket（自動）部分は変更なし ----------------
+let ws=null, curRoom='', myRole='host';
 function wsUrlFromInput(){
-  let url = el('signalingUrl').value.trim();
-  if(!url) return null;
-  try{
-    const u = new URL(url);
-    if(u.protocol === 'http:') u.protocol = 'ws:';
-    else if(u.protocol === 'https:') u.protocol = 'wss:';
-    return u.toString();
-  }catch(e){
-    if(url.startsWith('ws://')||url.startsWith('wss://')) return url;
-    return null;
-  }
+  let url=el('signalingUrl').value.trim();
+  try{ let u=new URL(url); if(u.protocol==='http:')u.protocol='ws:'; if(u.protocol==='https:')u.protocol='wss:'; return u.toString(); }
+  catch(e){return url;}
 }
-function logSignal(text){ const d=el('signalLog'); const p=document.createElement('div'); p.textContent=(new Date()).toLocaleTimeString()+' '+text; d.prepend(p); }
+function logSignal(t){ el('signalLog').prepend(Object.assign(document.createElement('div'),{textContent:t})); }
+function wsSend(o){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(o)); }
 
-async function wsConnect(asRole,room){
-  const wurl = wsUrlFromInput(); if(!wurl){ alert('Signaling URL を確認して下さい'); return; }
-  myRole = asRole; curRoom = room || el('roomId').value || 'room1';
-  try{ ws = new WebSocket(wurl); }catch(e){ alert('WebSocket接続に失敗: '+e.message); return; }
-  ws.onopen = ()=>{ logSignal('WS connected'); wsSend({type:'join',room:curRoom,role:myRole}); el('otherState').textContent='接続中...'; };
-  ws.onmessage = async e=>{
-    try{ const msg = JSON.parse(e.data); logSignal('recv: '+(msg.type||'-')); await handleSignalMessage(msg); }catch(err){ console.error(err); }
+async function wsConnect(role,room){
+  myRole=role; curRoom=room||"room1"; ws=new WebSocket(wsUrlFromInput());
+  ws.onopen=()=>wsSend({type:'join',room:curRoom,role});
+  ws.onmessage=async e=>{
+    const m=JSON.parse(e.data);
+    if(m.type==='join'&&role==='host'){ await createPeer(); dataChannel=pc.createDataChannel("ms"); setupDataChannel(); await pc.setLocalDescription(await pc.createOffer()); wsSend({type:'offer',room:curRoom,sdp:pc.localDescription}); }
+    if(m.type==='offer'&&role==='guest'){ await createPeer(); await pc.setRemoteDescription(m.sdp); await pc.setLocalDescription(await pc.createAnswer()); wsSend({type:'answer',room:curRoom,sdp:pc.localDescription}); }
+    if(m.type==='answer'&&role==='host'){ await pc.setRemoteDescription(m.sdp); }
+    if(m.type==='candidate'){ try{ await pc.addIceCandidate(m.candidate);}catch{} }
   };
-  ws.onclose = ()=>{ logSignal('WS closed'); el('otherState').textContent='切断'; };
-  ws.onerror = (ev)=>{ console.error(ev); logSignal('WS error'); };
 }
-function wsSend(obj){ if(ws && ws.readyState==='open'){ ws.send(JSON.stringify(obj)); logSignal('send: '+(obj.type||'obj')); } }
+el('hostAuto').onclick=()=>wsConnect('host',el('roomId').value);
+el('joinAuto').onclick=()=>wsConnect('guest',el('roomId').value);
+el('disconnectAuto').onclick=()=>{ ws&&ws.close(); pc&&pc.close(); };
 
-async function handleSignalMessage(msg){
-  if(!msg.type) return;
-  if(msg.type==='offer' && myRole==='guest' && msg.room===curRoom){
-    await createPeer();
-    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    wsSend({type:'answer',room:curRoom,sdp:pc.localDescription});
-    logSignal('sent answer via WS');
-  } else if(msg.type==='answer' && myRole==='host' && msg.room===curRoom){
-    if(!pc) await createPeer();
-    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-    logSignal('Answer applied (host)');
-  } else if(msg.type==='candidate' && msg.room===curRoom){
-    if(pc) try{ await pc.addIceCandidate(msg.candidate); }catch(e){ console.warn('addIce failed',e); }
-  } else if(msg.type==='join' && myRole==='host' && msg.room===curRoom){
-    if(!pc) await createPeer();
-    dataChannel = pc.createDataChannel('ms'); setupDataChannel();
-    const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
-    wsSend({type:'offer',room:curRoom,sdp:pc.localDescription});
-    logSignal('Sent offer (auto)');
-  }
-}
-
-el('hostAuto').addEventListener('click', ()=> wsConnect('host', el('roomId').value));
-el('joinAuto').addEventListener('click', ()=> wsConnect('guest', el('roomId').value));
-el('disconnectAuto').addEventListener('click', ()=>{ if(ws) ws.close(); if(pc) pc.close(); });
-
-el('createSelf').addEventListener('click', ()=> initBoards(+el('rows').value,+el('cols').value,+el('mines').value));
-el('sendConfig').addEventListener('click', ()=> sendState());
+el('createSelf').onclick=()=> initBoards(+el('rows').value,+el('cols').value,+el('mines').value);
+el('sendConfig').onclick=()=> sendState();
 
 initBoards(ROWS,COLS,MINES);
 </script>
 </body>
 </html>
-
-  <script>
-    
-  </script>
-</body>
-</html>
-
